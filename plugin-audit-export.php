@@ -4,7 +4,7 @@
  * Plugin Name:       Plugin Audit Exporter
  * Description:       Export formatted plugin audits.
  * Version:           0.1.0
- * Requires PHP:      8.2
+ * Requires PHP:      >=7.2
  * Author:            CodingIT
  * Author URI:        https://codingit.dev
  */

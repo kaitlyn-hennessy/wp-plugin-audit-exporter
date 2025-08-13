@@ -2,12 +2,11 @@
 
 namespace PluginAuditExporter;
 
-use JetBrains\PhpStorm\NoReturn;
-
 class PluginAuditExporterAdmin
 {
     private static ?self $instance = null;
     private const HEADERS = ['Name', 'Status', 'Current Version', 'New Version', 'Notes'];
+    private const DELIMITER = ',';
 
     public static function get_instance(): self
     {
@@ -36,96 +35,76 @@ class PluginAuditExporterAdmin
 
     protected function plugin_audit_exporter_view(): void
     {
+        $url = esc_url(admin_url('admin-post.php?action=generate_plugin_audit'))
         ?>
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                const dlBtn = document.getElementById('generate_plugin_audit');
-                const formData = new FormData();
-                formData.append('action', 'generate_plugin_audit');
-
-                dlBtn.addEventListener('click', function () {
-                    dlBtn.disabled = true;
-                    dlBtn.textContent = 'Generating file...';
-
-                    fetch('<?= esc_url(admin_url('admin-post.php'))?>', {
-                        method: 'POST',
-                        body: formData,
-                    }).then(async (response) => {
-                        // @TODO
-                    }).catch(error => {
-                        console.error('Error generating CSV:', error);
-                        dlBtn.disabled = false;
-                        dlBtn.textContent = 'Download Audit';
-                    });
-                })
-            });
-        </script>
         <div class="wrap">
-            <h1>test</h1>
-            <button id="generate_plugin_audit">Download Audit</button>
+            <h1>Plugin Audit Exporter</h1>
+            <div>
+                <p>Click the button below to automatically download a full plugin audit. Includes name, status, current version, new version, and notes.</p>
+                <a class="button button-primary"
+                   href="<?= $url ?>"
+                   download>Download Audit</a>
+            </div>
         </div>
         <?php
     }
 
-    #[NoReturn] public static function generate_plugin_audit(): void
+    /**
+     * Build the plugin audit and trigger immediate download.
+     *
+     * @return void
+     */
+    public static function generate_plugin_audit(): void
     {
         $plugins = get_plugins();
         if (empty($plugins)) {
             // @TODO
-            die;
+            exit;
         }
 
-        $csv_data = [];
-//        $available_updates = get_plugin_updates();
-//        foreach ($plugins as $plugin) {
-//            $plugin_csv_data = [
-//                'name' => $plugin['Name'],
-//                'status' => is_plugin_active($plugin['Name']) ? 'Active' : 'Inactive',
-//                'current_version' => $plugin['Version'],
-//            ];
-//
-//            $update_key = array_filter(array_keys($available_updates), static fn($key) => str_contains($key, $plugin['TextDomain'] . '/'));
-//            $update_data = null;
-//            if (!empty($update_key) && count($update_key) === 1) {
-//                $update_data = $available_updates[$update_key[0]];
-//            }
-//
-//            $csv_data[] = array_merge($plugin_csv_data, self::get_update_information($plugin['Version'], $update_data));
-//        }
+        // Init file for writing and download
+        $url = get_bloginfo('url');
+        $cleaned_url = str_replace(['https://', 'http://', '.com', '.org', '.gov', '.edu', '.test'], '', $url);
+        $file_name = sprintf('%s_plugin-audit_%s.csv', $cleaned_url, gmdate('Y-m-d'));
+        $filestream = fopen('php://output', 'wb');
 
-        // Download the CSV
-        $filename = 'plugin_audit.csv';
-        $delimiter = ',';
-        $f = fopen('php://output', 'wb');
-        header('Content-Type: application/csv');
-        header('Content-Disposition: attachment; filename="'.$filename.'";');
-        fputcsv($f, self::HEADERS, $delimiter);
-//        foreach($csv_data as $line){
-//            fputcsv($f, array_values($line), $delimiter);
-//        }
+        // Prep headers for browser and start building file
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="' . $file_name . '"');
+        header('X-Content-Type-Options: nosniff');
+        fputcsv($filestream, self::HEADERS, self::DELIMITER);
 
-
-        echo $f;
-        fclose($f);
-        die();
-    }
-
-    private static function get_update_information(string $current_version, ?\stdClass $update_data): array
-    {
-        if (is_null($update_data)) {
-            return  [
-               'new_version' =>  null,
+        $available_updates = get_plugin_updates();
+        foreach ($plugins as $plugin_file => $plugin) {
+            $plugin_csv_data = [
+                'name' => $plugin['Name'],
+                'status' => is_plugin_active($plugin_file) ? 'Active' : 'Inactive',
+                'current_version' => $plugin['Version'],
+                'new_version' => null,
                 'notes' => null,
             ];
+
+            if (!array_key_exists($plugin_file, $available_updates)) {
+                // No update data to examine- write what we have and continue to next plugin
+                fputcsv($filestream, $plugin_csv_data, self::DELIMITER);
+                continue;
+            }
+
+
+            $current_major_version_int = (int)(explode('.', $plugin['Version'])[0]);
+            $new_version = $available_updates[$plugin_file]->update->new_version;
+            $new_major_version_int = (int)(explode('.', $new_version)[0]);
+            $plugin_csv_data['new_version'] = $new_version;
+
+            if ($new_major_version_int > $current_major_version_int) {
+                $plugin_csv_data['notes'] = 'Major version change';
+            }
+
+            fputcsv($filestream, array_values($plugin_csv_data), self::DELIMITER);
         }
 
-        $current_version_int = (int)(explode('.', $current_version)[0]);
-        $new_version = $update_data->update->new_version;
-        $new_version_int = (int)(explode('.', $new_version)[0]);
-
-        return [
-            'new_version' => $update_data->newVersion,
-            'notes' => $new_version_int > $current_version_int ? 'Major version change' : null,
-        ];
+        fclose($filestream);
+        exit;
     }
 }
