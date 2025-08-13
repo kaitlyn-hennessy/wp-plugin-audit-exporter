@@ -101,7 +101,7 @@ class PluginAuditExporterAdmin
                 $plugin_csv_data['notes'] = 'Major version change';
             }
 
-            fputcsv($filestream, array_values($plugin_csv_data), self::DELIMITER);
+            fputcsv($filestream, $plugin_csv_data, self::DELIMITER);
         }
 
         fclose($filestream);
